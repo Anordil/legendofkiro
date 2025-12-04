@@ -166,13 +166,51 @@ class Player {
             const distance = Math.sqrt(dx * dx + dy * dy);
             const minDistance = (this.width / 2 + enemy.size / 2);
             
-            if (distance < minDistance) {
+            if (distance < minDistance && distance > 0) {
                 // Push player away from enemy
                 const pushX = (dx / distance) * (minDistance - distance);
                 const pushY = (dy / distance) * (minDistance - distance);
                 
-                this.x -= pushX / 2;
-                this.y -= pushY / 2;
+                const newX = this.x - pushX / 2;
+                const newY = this.y - pushY / 2;
+                
+                // Only push if it doesn't cause collision with obstacles
+                if (!this.checkCollision(newX, this.y)) {
+                    this.x = newX;
+                }
+                if (!this.checkCollision(this.x, newY)) {
+                    this.y = newY;
+                }
+            }
+        }
+
+        // Final bounds check and obstacle escape
+        this.x = Math.max(this.width / 2, Math.min(WORLD_WIDTH - this.width / 2, this.x));
+        this.y = Math.max(this.height / 2, Math.min(WORLD_HEIGHT - this.height / 2, this.y));
+        
+        // If somehow stuck in obstacle, try to push out
+        if (this.checkCollision(this.x, this.y)) {
+            // Try moving in each direction to escape
+            const escapeDistance = 5;
+            const directions = [
+                {x: escapeDistance, y: 0},
+                {x: -escapeDistance, y: 0},
+                {x: 0, y: escapeDistance},
+                {x: 0, y: -escapeDistance},
+                {x: escapeDistance, y: escapeDistance},
+                {x: -escapeDistance, y: escapeDistance},
+                {x: escapeDistance, y: -escapeDistance},
+                {x: -escapeDistance, y: -escapeDistance}
+            ];
+            
+            for (let dir of directions) {
+                const testX = this.x + dir.x;
+                const testY = this.y + dir.y;
+                if (!this.checkCollision(testX, testY)) {
+                    this.x = testX;
+                    this.y = testY;
+                    break;
+                }
             }
         }
 
