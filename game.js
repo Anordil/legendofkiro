@@ -1,9 +1,9 @@
 // Game constants
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 600;
-const WORLD_WIDTH = 600;
-const WORLD_HEIGHT = 3000; // 5 screens tall
-const PLAYER_SIZE = 30;
+const WORLD_WIDTH = 1200; // 2 screens wide
+const WORLD_HEIGHT = 4800; // 8 screens tall
+const PLAYER_SIZE = 45; // 50% bigger (was 30)
 const COLLECTIBLE_SIZE = 20;
 const PLAYER_SPEED = 3;
 const FRICTION = 0.85;
@@ -38,7 +38,13 @@ class Player {
         this.health = 4;
         this.maxHealth = 4;
         this.image = new Image();
-        this.image.src = 'kiro-logo.png';
+        this.image.src = 'kirolink.png';
+        this.spriteLoaded = false;
+        this.image.onload = () => {
+            this.spriteLoaded = true;
+            this.spriteWidth = this.image.width / 2;
+            this.spriteHeight = this.image.height / 2;
+        };
         this.invulnerable = false;
         this.invulnerableTime = 0;
         this.attacking = false;
@@ -57,7 +63,7 @@ class Player {
         // Potion effects
         this.activePotion = null; // 'red', 'green', 'yellow', 'blue'
         this.potionTimer = 0;
-        this.potionDuration = 600; // 10 seconds at 60fps
+        this.potionDuration = 300; // 5 seconds at 60fps
     }
 
     update() {
@@ -150,6 +156,25 @@ class Player {
         this.x = Math.max(this.width / 2, Math.min(WORLD_WIDTH - this.width / 2, this.x));
         this.y = Math.max(this.height / 2, Math.min(WORLD_HEIGHT - this.height / 2, this.y));
 
+        // Check collision with enemies and push back
+        for (let enemy of game.enemies) {
+            if (!enemy.alive) continue;
+            
+            const dx = enemy.x - this.x;
+            const dy = enemy.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const minDistance = (this.width / 2 + enemy.size / 2);
+            
+            if (distance < minDistance) {
+                // Push player away from enemy
+                const pushX = (dx / distance) * (minDistance - distance);
+                const pushY = (dy / distance) * (minDistance - distance);
+                
+                this.x -= pushX / 2;
+                this.y -= pushY / 2;
+            }
+        }
+
         // Update invulnerability
         if (this.invulnerable) {
             this.invulnerableTime--;
@@ -169,7 +194,7 @@ class Player {
             this.weaponDamage = 1;
             this.weaponRange = 300;
             this.attackCooldown = 15; // 4 arrows per second
-        } else if (this.weapon === 'twohanded') {
+        } else if (this.weapon === 'battleaxe') {
             this.weaponDamage = 6;
             this.weaponRange = 60;
             this.attackCooldown = 30; // 2 attacks per second
@@ -249,18 +274,45 @@ class Player {
         
         // Flash when invulnerable
         if (!this.invulnerable || Math.floor(this.invulnerableTime / 5) % 2 === 0) {
-            ctx.drawImage(
-                this.image,
-                screenX - this.width / 2,
-                screenY - this.height / 2,
-                this.width,
-                this.height
-            );
+            if (this.spriteLoaded) {
+                // Determine which sprite to use based on facing direction
+                let sx = 0, sy = 0;
+                
+                switch (this.facingDirection) {
+                    case 'up':
+                        sx = this.spriteWidth;
+                        sy = 0;
+                        break;
+                    case 'down':
+                        sx = 0;
+                        sy = 0;
+                        break;
+                    case 'right':
+                        sx = 0;
+                        sy = this.spriteHeight;
+                        break;
+                    case 'left':
+                        sx = this.spriteWidth;
+                        sy = this.spriteHeight;
+                        break;
+                }
+                
+                ctx.drawImage(
+                    this.image,
+                    sx, sy, this.spriteWidth, this.spriteHeight,
+                    screenX - this.width / 2,
+                    screenY - this.height / 2,
+                    this.width,
+                    this.height
+                );
+            }
         }
 
         // Draw weapon
         if (this.weapon === 'bow') {
             this.drawBow(ctx, screenX, screenY);
+        } else if (this.weapon === 'battleaxe') {
+            this.drawBattleAxe(ctx, screenX, screenY);
         } else {
             this.drawSword(ctx, screenX, screenY);
         }
@@ -304,19 +356,32 @@ class Player {
     }
 
     drawBow(ctx, screenX, screenY) {
-        if (!this.attacking) return;
-
         ctx.save();
         ctx.translate(screenX, screenY);
 
         let angle = 0;
+        let offsetX = 0, offsetY = 0;
+        
         switch (this.facingDirection) {
-            case 'up': angle = -Math.PI / 2; break;
-            case 'down': angle = Math.PI / 2; break;
-            case 'left': angle = Math.PI; break;
-            case 'right': angle = 0; break;
+            case 'up': 
+                angle = -Math.PI / 2; 
+                offsetY = -5;
+                break;
+            case 'down': 
+                angle = Math.PI / 2; 
+                offsetY = 5;
+                break;
+            case 'left': 
+                angle = Math.PI; 
+                offsetX = -5;
+                break;
+            case 'right': 
+                angle = 0; 
+                offsetX = 5;
+                break;
         }
         
+        ctx.translate(offsetX, offsetY);
         ctx.rotate(angle);
 
         // Bow
@@ -326,21 +391,26 @@ class Player {
         ctx.arc(this.width / 2 + 10, 0, 12, -Math.PI / 2, Math.PI / 2);
         ctx.stroke();
 
-        // String
+        // String (pulled back when attacking)
         ctx.strokeStyle = '#ddd';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(this.width / 2 + 10, -12);
-        ctx.lineTo(this.width / 2 + 10, 12);
+        if (this.attacking) {
+            const pullBack = 5;
+            ctx.moveTo(this.width / 2 + 10 - pullBack, -12);
+            ctx.lineTo(this.width / 2 + 5, 0);
+            ctx.lineTo(this.width / 2 + 10 - pullBack, 12);
+        } else {
+            ctx.moveTo(this.width / 2 + 10, -12);
+            ctx.lineTo(this.width / 2 + 10, 12);
+        }
         ctx.stroke();
 
         ctx.restore();
     }
 
     drawSword(ctx, screenX, screenY) {
-        if (!this.attacking) return;
-
-        const progress = this.attackTime / this.attackDuration;
+        const progress = this.attacking ? this.attackTime / this.attackDuration : 0;
         const swingAngle = progress * Math.PI; // 0 to 180 degrees
 
         ctx.save();
@@ -348,8 +418,8 @@ class Player {
 
         // Rotate based on facing direction
         let baseAngle = 0;
-        let swordLength = this.weapon === 'twohanded' ? 35 : 25;
-        let swordWidth = this.weapon === 'twohanded' ? 8 : 6;
+        let swordLength = 25;
+        let swordWidth = 6;
 
         switch (this.facingDirection) {
             case 'up':
@@ -366,12 +436,14 @@ class Player {
                 break;
         }
 
-        // Apply swing animation
-        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        // Apply swing animation when attacking, otherwise show at rest
+        const currentAngle = this.attacking 
+            ? baseAngle + (swingAngle - Math.PI / 2) * 0.8
+            : baseAngle - Math.PI / 4; // Resting position
         ctx.rotate(currentAngle);
 
         // Draw sword blade
-        ctx.fillStyle = this.weapon === 'twohanded' ? '#a0a0a0' : '#c0c0c0';
+        ctx.fillStyle = '#c0c0c0';
         ctx.fillRect(this.width / 2, -swordWidth / 2, swordLength, swordWidth);
 
         // Draw sword tip
@@ -384,13 +456,92 @@ class Player {
 
         // Draw sword hilt
         ctx.fillStyle = '#8b4513';
-        const hiltLength = this.weapon === 'twohanded' ? 12 : 8;
-        ctx.fillRect(this.width / 2 - 5, -swordWidth / 2, hiltLength, swordWidth);
+        ctx.fillRect(this.width / 2 - 5, -swordWidth / 2, 8, swordWidth);
 
         // Draw sword guard
         ctx.fillStyle = '#ffd700';
-        const guardSize = this.weapon === 'twohanded' ? 4 : 3;
-        ctx.fillRect(this.width / 2 - 2, -swordWidth / 2 - guardSize, guardSize, swordWidth + guardSize * 2);
+        ctx.fillRect(this.width / 2 - 2, -swordWidth / 2 - 3, 3, swordWidth + 6);
+
+        ctx.restore();
+    }
+
+    drawBattleAxe(ctx, screenX, screenY) {
+        const progress = this.attacking ? this.attackTime / this.attackDuration : 0;
+        const swingAngle = progress * Math.PI; // 0 to 180 degrees
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        // Rotate based on facing direction
+        let baseAngle = 0;
+
+        switch (this.facingDirection) {
+            case 'up':
+                baseAngle = -Math.PI / 2;
+                break;
+            case 'down':
+                baseAngle = Math.PI / 2;
+                break;
+            case 'left':
+                baseAngle = Math.PI;
+                break;
+            case 'right':
+                baseAngle = 0;
+                break;
+        }
+
+        // Apply swing animation when attacking, otherwise show at rest
+        const currentAngle = this.attacking 
+            ? baseAngle + (swingAngle - Math.PI / 2) * 1.2
+            : baseAngle - Math.PI / 6; // Resting position
+        ctx.rotate(currentAngle);
+
+        const handleLength = 30;
+        const handleWidth = 5;
+        const axeHeadWidth = 20;
+        const axeHeadHeight = 18;
+
+        // Draw handle
+        ctx.fillStyle = '#654321';
+        ctx.fillRect(this.width / 2, -handleWidth / 2, handleLength, handleWidth);
+
+        // Draw axe head (double-bladed)
+        ctx.fillStyle = '#808080';
+        
+        // Top blade
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + handleLength - 5, -handleWidth / 2);
+        ctx.lineTo(this.width / 2 + handleLength + 5, -axeHeadHeight);
+        ctx.lineTo(this.width / 2 + handleLength + axeHeadWidth, -axeHeadHeight / 2);
+        ctx.lineTo(this.width / 2 + handleLength + 5, -handleWidth / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Bottom blade
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + handleLength - 5, handleWidth / 2);
+        ctx.lineTo(this.width / 2 + handleLength + 5, axeHeadHeight);
+        ctx.lineTo(this.width / 2 + handleLength + axeHeadWidth, axeHeadHeight / 2);
+        ctx.lineTo(this.width / 2 + handleLength + 5, handleWidth / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Blade edges (darker)
+        ctx.strokeStyle = '#505050';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + handleLength + 5, -axeHeadHeight);
+        ctx.lineTo(this.width / 2 + handleLength + axeHeadWidth, -axeHeadHeight / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + handleLength + 5, axeHeadHeight);
+        ctx.lineTo(this.width / 2 + handleLength + axeHeadWidth, axeHeadHeight / 2);
+        ctx.stroke();
+
+        // Handle grip
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(this.width / 2 + 5, -handleWidth / 2 - 1, 3, handleWidth + 2);
+        ctx.fillRect(this.width / 2 + 15, -handleWidth / 2 - 1, 3, handleWidth + 2);
 
         ctx.restore();
     }
@@ -482,14 +633,34 @@ class Collectible {
             ctx.moveTo(screenX, screenY - this.size / 2);
             ctx.lineTo(screenX, screenY + this.size / 2);
             ctx.stroke();
-        } else if (this.type === 'twohanded') {
-            // Draw two-handed sword
-            ctx.fillStyle = '#a0a0a0';
-            ctx.fillRect(screenX - 3, screenY - this.size / 2, 6, this.size);
+        } else if (this.type === 'battleaxe') {
+            // Draw battle axe
+            // Handle
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(screenX - 2, screenY - this.size / 2, 4, this.size);
+            
+            // Axe head
+            ctx.fillStyle = '#808080';
+            ctx.beginPath();
+            ctx.moveTo(screenX - 2, screenY - this.size / 3);
+            ctx.lineTo(screenX - this.size / 3, screenY - this.size / 2);
+            ctx.lineTo(screenX + this.size / 3, screenY - this.size / 2);
+            ctx.lineTo(screenX + 2, screenY - this.size / 3);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.moveTo(screenX - 2, screenY - this.size / 3 + 5);
+            ctx.lineTo(screenX - this.size / 3, screenY - this.size / 2 + 10);
+            ctx.lineTo(screenX + this.size / 3, screenY - this.size / 2 + 10);
+            ctx.lineTo(screenX + 2, screenY - this.size / 3 + 5);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Handle grips
             ctx.fillStyle = '#8b4513';
-            ctx.fillRect(screenX - 4, screenY + this.size / 3, 8, this.size / 6);
-            ctx.fillStyle = '#ffd700';
-            ctx.fillRect(screenX - 5, screenY + this.size / 4, 10, 3);
+            ctx.fillRect(screenX - 3, screenY, 6, 2);
+            ctx.fillRect(screenX - 3, screenY + this.size / 4, 6, 2);
         } else if (this.type.includes('potion')) {
             this.drawPotion(ctx, screenX, screenY);
         }
@@ -533,8 +704,8 @@ class Collectible {
                 player.heal(1);
             } else if (this.type === 'bow') {
                 player.equipWeapon('bow');
-            } else if (this.type === 'twohanded') {
-                player.equipWeapon('twohanded');
+            } else if (this.type === 'battleaxe') {
+                player.equipWeapon('battleaxe');
             } else if (this.type === 'red_potion') {
                 player.drinkPotion('red');
             } else if (this.type === 'green_potion') {
@@ -578,10 +749,29 @@ class Enemy {
         this.vx = 0;
         this.vy = 0;
         this.changeDirectionTimer = 0;
+        this.attacking = false;
+        this.attackTime = 0;
+        this.attackDuration = 20;
+        this.attackCooldown = 60; // 1 second between attacks
+        this.lastAttackTime = 0;
     }
 
     update(player) {
         if (!this.alive) return;
+
+        // Update attack animation
+        if (this.attacking) {
+            this.attackTime++;
+            if (this.attackTime >= this.attackDuration) {
+                this.attacking = false;
+                this.attackTime = 0;
+            }
+        }
+
+        // Update attack cooldown
+        if (this.lastAttackTime > 0) {
+            this.lastAttackTime--;
+        }
 
         // Simple AI: move towards player when close
         const dx = player.x - this.x;
@@ -608,13 +798,48 @@ class Enemy {
         this.x = Math.max(this.size / 2, Math.min(WORLD_WIDTH - this.size / 2, this.x));
         this.y = Math.max(this.size / 2, Math.min(WORLD_HEIGHT - this.size / 2, this.y));
 
-        // Check collision with player
+        // Collision with other enemies
+        for (let other of game.enemies) {
+            if (other === this || !other.alive) continue;
+            
+            const odx = other.x - this.x;
+            const ody = other.y - this.y;
+            const odist = Math.sqrt(odx * odx + ody * ody);
+            const minDist = (this.size / 2 + other.size / 2);
+            
+            if (odist < minDist && odist > 0) {
+                // Push enemies apart
+                const pushX = (odx / odist) * (minDist - odist);
+                const pushY = (ody / odist) * (minDist - odist);
+                
+                this.x -= pushX / 2;
+                this.y -= pushY / 2;
+                other.x += pushX / 2;
+                other.y += pushY / 2;
+            }
+        }
+
+        // Check collision with player and attack
         const playerDx = player.x - this.x;
         const playerDy = player.y - this.y;
         const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+        const minDistance = (player.width / 2 + this.size / 2);
         
-        if (playerDistance < (player.width / 2 + this.size / 2)) {
-            player.takeDamage(this.damage);
+        if (playerDistance < minDistance) {
+            // Push enemy away from player
+            const pushX = (playerDx / playerDistance) * (minDistance - playerDistance);
+            const pushY = (playerDy / playerDistance) * (minDistance - playerDistance);
+            
+            this.x -= pushX / 2;
+            this.y -= pushY / 2;
+            
+            // Attack player if cooldown is ready
+            if (this.lastAttackTime === 0) {
+                this.attacking = true;
+                this.attackTime = 0;
+                this.lastAttackTime = this.attackCooldown;
+                player.takeDamage(this.damage);
+            }
         }
     }
 
@@ -639,8 +864,10 @@ class Enemy {
         
         if (this.isBoss) {
             this.drawOgre(ctx, screenX, screenY);
+            this.drawBossClub(ctx, screenX, screenY);
         } else {
             this.drawGoblin(ctx, screenX, screenY);
+            this.drawClub(ctx, screenX, screenY);
         }
         
         // Health bar
@@ -652,6 +879,71 @@ class Enemy {
             ctx.fillStyle = '#0f0';
             ctx.fillRect(screenX - barWidth / 2, screenY - this.size / 2 - 10, barWidth * (this.health / this.maxHealth), barHeight);
         }
+    }
+
+    drawClub(ctx, screenX, screenY) {
+        if (!this.attacking) return;
+
+        const progress = this.attackTime / this.attackDuration;
+        const swingAngle = progress * Math.PI;
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        // Determine direction to player
+        const dx = game.player.x - this.x;
+        const dy = game.player.y - this.y;
+        const baseAngle = Math.atan2(dy, dx);
+
+        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        ctx.rotate(currentAngle);
+
+        const clubLength = 18;
+        const clubWidth = 5;
+
+        // Club handle
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(this.size / 2, -clubWidth / 2, clubLength - 6, clubWidth);
+
+        // Club head
+        ctx.fillStyle = '#654321';
+        ctx.beginPath();
+        ctx.arc(this.size / 2 + clubLength - 3, 0, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    drawBossClub(ctx, screenX, screenY) {
+        if (!this.attacking) return;
+
+        const progress = this.attackTime / this.attackDuration;
+        const swingAngle = progress * Math.PI;
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        const dx = game.player.x - this.x;
+        const dy = game.player.y - this.y;
+        const baseAngle = Math.atan2(dy, dx);
+
+        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        ctx.rotate(currentAngle);
+
+        const clubLength = 35;
+        const clubWidth = 10;
+
+        // Club handle
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(this.size / 2, -clubWidth / 2, clubLength - 10, clubWidth);
+
+        // Club head (bigger)
+        ctx.fillStyle = '#654321';
+        ctx.beginPath();
+        ctx.arc(this.size / 2 + clubLength - 5, 0, 10, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 
     drawGoblin(ctx, screenX, screenY) {
@@ -852,47 +1144,47 @@ function createObstacles() {
         game.obstacles.push(new Obstacle(x, WORLD_HEIGHT - 40, 50, 40, 'mountain'));
     }
 
-    // Random obstacles throughout
-    for (let i = 0; i < 30; i++) {
-        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
-        const y = Math.random() * (WORLD_HEIGHT - 400) + 200;
+    // Random obstacles throughout (more for bigger world)
+    for (let i = 0; i < 60; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
         const type = Math.random() > 0.5 ? 'tree' : 'mountain';
         game.obstacles.push(new Obstacle(x, y, 40, 40, type));
     }
 }
 
 function createCollectibles() {
-    // Hearts
-    for (let i = 0; i < 10; i++) {
-        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
-        const y = Math.random() * (WORLD_HEIGHT - 400) + 200;
+    // Hearts (more for bigger world)
+    for (let i = 0; i < 20; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
         game.collectibles.push(new Collectible(x, y, 'heart'));
     }
     
     // Weapons
-    const weapons = ['bow', 'twohanded'];
+    const weapons = ['bow', 'battleaxe'];
     for (let weapon of weapons) {
-        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
-        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 1200) + 600;
         game.collectibles.push(new Collectible(x, y, weapon));
     }
     
-    // Potions
-    const potions = ['red_potion', 'green_potion', 'yellow_potion', 'blue_potion'];
+    // Potions (more for bigger world)
+    const potions = ['red_potion', 'green_potion', 'yellow_potion', 'blue_potion', 'red_potion', 'green_potion'];
     for (let potion of potions) {
-        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
-        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 1200) + 600;
         game.collectibles.push(new Collectible(x, y, potion));
     }
 }
 
 function createEnemies() {
-    // Create mix of goblin types
-    const types = ['blue', 'blue', 'blue', 'red', 'red', 'red', 'white', 'white'];
+    // Create mix of goblin types (more enemies for bigger world)
+    const types = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red', 'white', 'white', 'white', 'white'];
     
     for (let i = 0; i < types.length; i++) {
-        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
-        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 1200) + 600;
         game.enemies.push(new Enemy(x, y, types[i]));
     }
 }
