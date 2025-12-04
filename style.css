@@ -47,7 +47,7 @@ body {
 
 #hearts {
     display: flex;
-    gap: 10px;
+    gap: 15px;
 }
 
 .heart {

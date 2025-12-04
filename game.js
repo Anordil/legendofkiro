@@ -20,6 +20,7 @@ const game = {
     score: 0,
     gameOver: false,
     won: false,
+    gameStarted: false,
     obstacles: [],
     collectibles: [],
     enemies: [],
@@ -260,6 +261,12 @@ class Player {
 
     heal(amount) {
         this.health = Math.min(this.maxHealth, this.health + amount);
+        updateHearts();
+    }
+
+    addHeartContainer() {
+        this.maxHealth += 1;
+        this.health = this.maxHealth; // Fully heal when getting container
         updateHearts();
     }
 
@@ -620,6 +627,66 @@ class Collectible {
             ctx.beginPath();
             ctx.arc(screenX + this.size / 6, screenY - this.size / 6, this.size / 3, 0, Math.PI * 2);
             ctx.fill();
+        } else if (this.type === 'heart_container') {
+            // Blue rim
+            ctx.fillStyle = '#0066ff';
+            ctx.save();
+            ctx.translate(screenX, screenY);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillRect(-this.size / 4 - 2, -this.size / 4 - 2, this.size / 2 + 4, this.size / 2 + 4);
+            ctx.restore();
+            
+            ctx.beginPath();
+            ctx.arc(screenX - this.size / 6, screenY - this.size / 6, this.size / 3 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 6, screenY - this.size / 6, this.size / 3 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Red heart inside
+            ctx.fillStyle = '#ff0066';
+            ctx.save();
+            ctx.translate(screenX, screenY);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillRect(-this.size / 4, -this.size / 4, this.size / 2, this.size / 2);
+            ctx.restore();
+            
+            ctx.beginPath();
+            ctx.arc(screenX - this.size / 6, screenY - this.size / 6, this.size / 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 6, screenY - this.size / 6, this.size / 3, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (this.type === 'coin_pouch') {
+            // Leather pouch
+            ctx.fillStyle = '#8b4513';
+            ctx.beginPath();
+            ctx.ellipse(screenX, screenY, this.size / 2, this.size / 2.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Pouch opening/tie
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(screenX - this.size / 6, screenY - this.size / 2, this.size / 3, this.size / 8);
+            
+            // Spilling gold coins
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 3, screenY - this.size / 6, this.size / 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 2, screenY + this.size / 8, this.size / 7, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 4, screenY + this.size / 4, this.size / 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Coin details (shine)
+            ctx.fillStyle = '#ffed4e';
+            ctx.beginPath();
+            ctx.arc(screenX + this.size / 3 - 2, screenY - this.size / 6 - 1, this.size / 12, 0, Math.PI * 2);
+            ctx.fill();
         } else if (this.type === 'bow') {
             // Draw bow weapon
             ctx.strokeStyle = '#8b4513';
@@ -702,6 +769,11 @@ class Collectible {
             
             if (this.type === 'heart') {
                 player.heal(1);
+            } else if (this.type === 'heart_container') {
+                player.addHeartContainer();
+            } else if (this.type === 'coin_pouch') {
+                game.score += 500;
+                updateScore();
             } else if (this.type === 'bow') {
                 player.equipWeapon('bow');
             } else if (this.type === 'battleaxe') {
@@ -724,23 +796,24 @@ class Enemy {
     constructor(x, y, type = 'blue') {
         this.x = x;
         this.y = y;
-        this.type = type; // 'blue', 'red', 'white', 'boss'
+        this.type = type; // 'blue', 'red', 'white', 'blue_kobold', 'red_kobold', 'white_kobold', 'boss'
         this.isBoss = type === 'boss';
+        this.isKobold = type.includes('kobold');
         this.size = this.isBoss ? BOSS_SIZE : ENEMY_SIZE;
         
         // Set health based on type
         if (this.isBoss) {
             this.health = 50;
             this.speed = 1;
-        } else if (type === 'blue') {
+        } else if (type === 'blue' || type === 'blue_kobold') {
             this.health = 2;
-            this.speed = 1.5;
-        } else if (type === 'red') {
+            this.speed = this.isKobold ? 0.75 : 1.5; // Kobolds move at half speed
+        } else if (type === 'red' || type === 'red_kobold') {
             this.health = 4;
-            this.speed = 1.3;
-        } else if (type === 'white') {
+            this.speed = this.isKobold ? 0.65 : 1.3;
+        } else if (type === 'white' || type === 'white_kobold') {
             this.health = 6;
-            this.speed = 1.1;
+            this.speed = this.isKobold ? 0.55 : 1.1;
         }
         
         this.maxHealth = this.health;
@@ -752,8 +825,9 @@ class Enemy {
         this.attacking = false;
         this.attackTime = 0;
         this.attackDuration = 20;
-        this.attackCooldown = 60; // 1 second between attacks
+        this.attackCooldown = this.isKobold ? 90 : 60; // Kobolds shoot every 1.5 seconds
         this.lastAttackTime = 0;
+        this.bolts = []; // Crossbow bolts for kobolds
     }
 
     update(player) {
@@ -819,26 +893,73 @@ class Enemy {
             }
         }
 
+        // Update bolts for kobolds
+        if (this.isKobold) {
+            for (let i = this.bolts.length - 1; i >= 0; i--) {
+                const bolt = this.bolts[i];
+                bolt.x += bolt.vx;
+                bolt.y += bolt.vy;
+                bolt.distance += Math.sqrt(bolt.vx * bolt.vx + bolt.vy * bolt.vy);
+                
+                // Check collision with player
+                const boltDx = player.x - bolt.x;
+                const boltDy = player.y - bolt.y;
+                const boltDist = Math.sqrt(boltDx * boltDx + boltDy * boltDy);
+                
+                if (boltDist < player.width / 2) {
+                    player.takeDamage(this.damage);
+                    this.bolts.splice(i, 1);
+                    continue;
+                }
+                
+                // Remove bolts that traveled too far or out of bounds
+                if (bolt.distance > 400 || bolt.x < 0 || bolt.x > WORLD_WIDTH || bolt.y < 0 || bolt.y > WORLD_HEIGHT) {
+                    this.bolts.splice(i, 1);
+                }
+            }
+        }
+
         // Check collision with player and attack
         const playerDx = player.x - this.x;
         const playerDy = player.y - this.y;
         const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
         const minDistance = (player.width / 2 + this.size / 2);
         
-        if (playerDistance < minDistance) {
-            // Push enemy away from player
-            const pushX = (playerDx / playerDistance) * (minDistance - playerDistance);
-            const pushY = (playerDy / playerDistance) * (minDistance - playerDistance);
-            
-            this.x -= pushX / 2;
-            this.y -= pushY / 2;
-            
-            // Attack player if cooldown is ready
-            if (this.lastAttackTime === 0) {
+        if (this.isKobold) {
+            // Kobolds shoot from range
+            if (playerDistance < 250 && playerDistance > 80 && this.lastAttackTime === 0) {
                 this.attacking = true;
                 this.attackTime = 0;
                 this.lastAttackTime = this.attackCooldown;
-                player.takeDamage(this.damage);
+                
+                // Shoot crossbow bolt
+                const boltSpeed = 5;
+                const angle = Math.atan2(playerDy, playerDx);
+                this.bolts.push({
+                    x: this.x,
+                    y: this.y,
+                    vx: Math.cos(angle) * boltSpeed,
+                    vy: Math.sin(angle) * boltSpeed,
+                    distance: 0
+                });
+            }
+        } else {
+            // Melee enemies attack on contact
+            if (playerDistance < minDistance) {
+                // Push enemy away from player
+                const pushX = (playerDx / playerDistance) * (minDistance - playerDistance);
+                const pushY = (playerDy / playerDistance) * (minDistance - playerDistance);
+                
+                this.x -= pushX / 2;
+                this.y -= pushY / 2;
+                
+                // Attack player if cooldown is ready
+                if (this.lastAttackTime === 0) {
+                    this.attacking = true;
+                    this.attackTime = 0;
+                    this.lastAttackTime = this.attackCooldown;
+                    player.takeDamage(this.damage);
+                }
             }
         }
     }
@@ -865,9 +986,36 @@ class Enemy {
         if (this.isBoss) {
             this.drawOgre(ctx, screenX, screenY);
             this.drawBossClub(ctx, screenX, screenY);
+        } else if (this.isKobold) {
+            this.drawKobold(ctx, screenX, screenY);
+            this.drawCrossbow(ctx, screenX, screenY);
         } else {
             this.drawGoblin(ctx, screenX, screenY);
             this.drawClub(ctx, screenX, screenY);
+        }
+        
+        // Draw crossbow bolts
+        if (this.isKobold) {
+            for (let bolt of this.bolts) {
+                const boltScreenX = bolt.x - game.camera.x;
+                const boltScreenY = bolt.y - game.camera.y;
+                
+                ctx.save();
+                ctx.translate(boltScreenX, boltScreenY);
+                ctx.rotate(Math.atan2(bolt.vy, bolt.vx));
+                
+                ctx.fillStyle = '#654321';
+                ctx.fillRect(-6, -1, 6, 2);
+                ctx.fillStyle = '#808080';
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(4, -2);
+                ctx.lineTo(4, 2);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            }
         }
         
         // Health bar
@@ -1005,6 +1153,122 @@ class Enemy {
         ctx.fillRect(screenX + s / 16, screenY + s / 3, s / 8, s / 4);
     }
 
+    drawKobold(ctx, screenX, screenY) {
+        const s = this.size;
+        
+        // Body color based on type
+        let bodyColor;
+        if (this.type === 'blue_kobold') bodyColor = '#6495ed';
+        else if (this.type === 'red_kobold') bodyColor = '#ff6347';
+        else if (this.type === 'white_kobold') bodyColor = '#f5f5f5';
+        
+        // Body (more reptilian/scaly)
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(screenX - s / 3, screenY - s / 8, s * 2 / 3, s * 3 / 4);
+        
+        // Head (more elongated/reptilian)
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.ellipse(screenX, screenY - s / 3, s / 3, s / 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Snout
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.ellipse(screenX + s / 6, screenY - s / 3, s / 6, s / 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Horns (small)
+        ctx.fillStyle = '#8b4513';
+        ctx.beginPath();
+        ctx.moveTo(screenX - s / 4, screenY - s / 2.5);
+        ctx.lineTo(screenX - s / 3, screenY - s / 1.8);
+        ctx.lineTo(screenX - s / 5, screenY - s / 2.3);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(screenX + s / 4, screenY - s / 2.5);
+        ctx.lineTo(screenX + s / 3, screenY - s / 1.8);
+        ctx.lineTo(screenX + s / 5, screenY - s / 2.3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Eyes (reptilian slits)
+        ctx.fillStyle = '#ffff00';
+        ctx.beginPath();
+        ctx.ellipse(screenX - s / 8, screenY - s / 3, s / 12, s / 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(screenX + s / 16, screenY - s / 3, s / 12, s / 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Pupils (vertical slits)
+        ctx.fillStyle = '#000';
+        ctx.fillRect(screenX - s / 8 - 1, screenY - s / 3 - s / 20, 2, s / 10);
+        ctx.fillRect(screenX + s / 16 - 1, screenY - s / 3 - s / 20, 2, s / 10);
+        
+        // Tail
+        ctx.strokeStyle = bodyColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(screenX, screenY + s / 2);
+        ctx.quadraticCurveTo(screenX - s / 3, screenY + s / 1.5, screenX - s / 2, screenY + s / 1.2);
+        ctx.stroke();
+        
+        // Arms
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(screenX - s / 2, screenY, s / 6, s / 3);
+        ctx.fillRect(screenX + s / 3, screenY, s / 6, s / 3);
+        
+        // Legs
+        ctx.fillRect(screenX - s / 6, screenY + s / 3, s / 8, s / 4);
+        ctx.fillRect(screenX + s / 16, screenY + s / 3, s / 8, s / 4);
+    }
+
+    drawCrossbow(ctx, screenX, screenY) {
+        const dx = game.player.x - this.x;
+        const dy = game.player.y - this.y;
+        const angle = Math.atan2(dy, dx);
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        ctx.rotate(angle);
+
+        // Crossbow body
+        ctx.fillStyle = '#654321';
+        ctx.fillRect(this.size / 2, -2, 12, 4);
+
+        // Bow arms
+        ctx.strokeStyle = '#8b4513';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.size / 2 + 12, -8);
+        ctx.lineTo(this.size / 2 + 12, 8);
+        ctx.stroke();
+
+        // String
+        if (this.attacking) {
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(this.size / 2 + 8, 0);
+            ctx.lineTo(this.size / 2 + 12, -8);
+            ctx.lineTo(this.size / 2 + 12, 8);
+            ctx.lineTo(this.size / 2 + 8, 0);
+            ctx.stroke();
+        } else {
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(this.size / 2 + 12, -8);
+            ctx.lineTo(this.size / 2 + 12, 8);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
     drawOgre(ctx, screenX, screenY) {
         const s = this.size;
         
@@ -1115,6 +1379,13 @@ function init() {
     // Event listeners
     document.addEventListener('keydown', (e) => {
         game.keys[e.key] = true;
+        
+        // Start game on any key press from start screen
+        if (!game.gameStarted) {
+            game.gameStarted = true;
+            return;
+        }
+        
         if (e.key === ' ') {
             e.preventDefault();
             attack();
@@ -1161,6 +1432,20 @@ function createCollectibles() {
         game.collectibles.push(new Collectible(x, y, 'heart'));
     }
     
+    // Heart containers (increase max health)
+    for (let i = 0; i < 3; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 1200) + 600;
+        game.collectibles.push(new Collectible(x, y, 'heart_container'));
+    }
+    
+    // Coin pouches (bonus points)
+    for (let i = 0; i < 3; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 400) + 200;
+        const y = Math.random() * (WORLD_HEIGHT - 1200) + 600;
+        game.collectibles.push(new Collectible(x, y, 'coin_pouch'));
+    }
+    
     // Weapons
     const weapons = ['bow', 'battleaxe'];
     for (let weapon of weapons) {
@@ -1179,8 +1464,11 @@ function createCollectibles() {
 }
 
 function createEnemies() {
-    // Create mix of goblin types (more enemies for bigger world)
-    const types = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red', 'white', 'white', 'white', 'white'];
+    // Create mix of goblin and kobold types
+    const types = [
+        'blue', 'blue', 'blue', 'red', 'red', 'red', 'white', 'white', 'white',
+        'blue_kobold', 'blue_kobold', 'red_kobold', 'red_kobold', 'white_kobold', 'white_kobold'
+    ];
     
     for (let i = 0; i < types.length; i++) {
         const x = Math.random() * (WORLD_WIDTH - 400) + 200;
@@ -1328,6 +1616,7 @@ function restart() {
     game.score = 0;
     game.gameOver = false;
     game.won = false;
+    game.gameStarted = false;
     game.obstacles = [];
     game.collectibles = [];
     game.enemies = [];
@@ -1347,7 +1636,90 @@ function restart() {
     updateScore();
 }
 
+function drawStartScreen() {
+    game.ctx.fillStyle = '#1a1a1a';
+    game.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    
+    // Title
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 48px "Courier New"';
+    game.ctx.textAlign = 'center';
+    game.ctx.fillText('The Legend of Kiro', CANVAS_WIDTH / 2, 80);
+    
+    // Subtitle
+    game.ctx.fillStyle = '#fff';
+    game.ctx.font = '20px "Courier New"';
+    game.ctx.fillText('Press any key to start', CANVAS_WIDTH / 2, 120);
+    
+    // Instructions section
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 24px "Courier New"';
+    game.ctx.textAlign = 'left';
+    game.ctx.fillText('Weapons:', 50, 170);
+    
+    game.ctx.fillStyle = '#fff';
+    game.ctx.font = '16px "Courier New"';
+    game.ctx.fillText('Sword: 2 damage, 4 attacks/sec', 70, 195);
+    game.ctx.fillText('Bow: 1 damage, shoots arrows', 70, 215);
+    game.ctx.fillText('Battle Axe: 6 damage, 2 attacks/sec', 70, 235);
+    
+    // Collectibles section
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 24px "Courier New"';
+    game.ctx.fillText('Collectibles:', 50, 280);
+    
+    game.ctx.fillStyle = '#fff';
+    game.ctx.font = '16px "Courier New"';
+    game.ctx.fillText('Heart Container: +1 max health', 70, 305);
+    game.ctx.fillText('Coin Pouch: +500 points', 70, 325);
+    
+    // Potions section
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 24px "Courier New"';
+    game.ctx.fillText('Potions (5 seconds):', 50, 365);
+    
+    game.ctx.fillStyle = '#ff0000';
+    game.ctx.font = '16px "Courier New"';
+    game.ctx.fillText('Red: Double damage', 70, 390);
+    
+    game.ctx.fillStyle = '#00ff00';
+    game.ctx.fillText('Green: Attack 2x faster', 70, 410);
+    
+    game.ctx.fillStyle = '#ffff00';
+    game.ctx.fillText('Yellow: Move 2x faster', 70, 430);
+    
+    game.ctx.fillStyle = '#0066ff';
+    game.ctx.fillText('Blue: Invulnerable', 70, 450);
+    
+    // Enemies section
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 24px "Courier New"';
+    game.ctx.fillText('Enemies:', 50, 490);
+    
+    game.ctx.fillStyle = '#fff';
+    game.ctx.font = '16px "Courier New"';
+    game.ctx.fillText('Goblins: Melee with clubs', 70, 515);
+    game.ctx.fillText('Kobolds: Ranged with crossbows', 70, 535);
+    game.ctx.fillText('Ogre Boss: Defeat to win!', 70, 555);
+    
+    // Controls
+    game.ctx.fillStyle = '#ffd700';
+    game.ctx.font = 'bold 24px "Courier New"';
+    game.ctx.fillText('Controls:', 50, 585);
+    
+    game.ctx.fillStyle = '#fff';
+    game.ctx.font = '16px "Courier New"';
+    game.ctx.fillText('WASD or Arrow Keys: Move', 70, 610);
+    game.ctx.fillText('Spacebar: Attack', 70, 630);
+}
+
 function gameLoop() {
+    if (!game.gameStarted) {
+        drawStartScreen();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
     if (!game.gameOver) {
         // Update
         game.player.update();
