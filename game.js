@@ -41,17 +41,33 @@ class Player {
         this.image.src = 'kiro-logo.png';
         this.invulnerable = false;
         this.invulnerableTime = 0;
+        this.attacking = false;
+        this.attackTime = 0;
+        this.attackDuration = 15; // frames
+        this.facingDirection = 'up'; // up, down, left, right
+        this.swordDamage = 2;
     }
 
     update() {
+        // Update attack animation
+        if (this.attacking) {
+            this.attackTime++;
+            if (this.attackTime >= this.attackDuration) {
+                this.attacking = false;
+                this.attackTime = 0;
+            }
+        }
+
         // Movement with no diagonal
         let moving = false;
         
         if (game.keys['ArrowUp'] || game.keys['w']) {
             this.vy = -PLAYER_SPEED;
+            this.facingDirection = 'up';
             moving = true;
         } else if (game.keys['ArrowDown'] || game.keys['s']) {
             this.vy = PLAYER_SPEED;
+            this.facingDirection = 'down';
             moving = true;
         } else {
             this.vy = 0;
@@ -60,8 +76,10 @@ class Player {
         if (!moving) {
             if (game.keys['ArrowLeft'] || game.keys['a']) {
                 this.vx = -PLAYER_SPEED;
+                this.facingDirection = 'left';
             } else if (game.keys['ArrowRight'] || game.keys['d']) {
                 this.vx = PLAYER_SPEED;
+                this.facingDirection = 'right';
             }
         }
 
@@ -147,6 +165,65 @@ class Player {
                 this.height
             );
         }
+
+        // Draw sword
+        this.drawSword(ctx, screenX, screenY);
+    }
+
+    drawSword(ctx, screenX, screenY) {
+        if (!this.attacking) return;
+
+        const progress = this.attackTime / this.attackDuration;
+        const swingAngle = progress * Math.PI; // 0 to 180 degrees
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        // Rotate based on facing direction
+        let baseAngle = 0;
+        let swordLength = 25;
+        let swordWidth = 6;
+
+        switch (this.facingDirection) {
+            case 'up':
+                baseAngle = -Math.PI / 2;
+                break;
+            case 'down':
+                baseAngle = Math.PI / 2;
+                break;
+            case 'left':
+                baseAngle = Math.PI;
+                break;
+            case 'right':
+                baseAngle = 0;
+                break;
+        }
+
+        // Apply swing animation
+        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        ctx.rotate(currentAngle);
+
+        // Draw sword blade
+        ctx.fillStyle = '#c0c0c0';
+        ctx.fillRect(this.width / 2, -swordWidth / 2, swordLength, swordWidth);
+
+        // Draw sword tip
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + swordLength, -swordWidth / 2);
+        ctx.lineTo(this.width / 2 + swordLength + 5, 0);
+        ctx.lineTo(this.width / 2 + swordLength, swordWidth / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw sword hilt
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(this.width / 2 - 5, -swordWidth / 2, 8, swordWidth);
+
+        // Draw sword guard
+        ctx.fillStyle = '#ffd700';
+        ctx.fillRect(this.width / 2 - 2, -swordWidth / 2 - 3, 3, swordWidth + 6);
+
+        ctx.restore();
     }
 }
 
@@ -244,14 +321,30 @@ class Collectible {
 
 // Enemy class
 class Enemy {
-    constructor(x, y, isBoss = false) {
+    constructor(x, y, type = 'blue') {
         this.x = x;
         this.y = y;
-        this.size = isBoss ? BOSS_SIZE : ENEMY_SIZE;
-        this.health = isBoss ? 10 : 3;
+        this.type = type; // 'blue', 'red', 'white', 'boss'
+        this.isBoss = type === 'boss';
+        this.size = this.isBoss ? BOSS_SIZE : ENEMY_SIZE;
+        
+        // Set health based on type
+        if (this.isBoss) {
+            this.health = 50;
+            this.speed = 1;
+        } else if (type === 'blue') {
+            this.health = 2;
+            this.speed = 1.5;
+        } else if (type === 'red') {
+            this.health = 4;
+            this.speed = 1.3;
+        } else if (type === 'white') {
+            this.health = 6;
+            this.speed = 1.1;
+        }
+        
         this.maxHealth = this.health;
-        this.speed = isBoss ? 1 : 1.5;
-        this.isBoss = isBoss;
+        this.damage = 0.5; // Half a heart
         this.alive = true;
         this.vx = 0;
         this.vy = 0;
@@ -292,7 +385,7 @@ class Enemy {
         const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
         
         if (playerDistance < (player.width / 2 + this.size / 2)) {
-            player.takeDamage(1);
+            player.takeDamage(this.damage);
         }
     }
 
@@ -315,14 +408,11 @@ class Enemy {
         const screenX = this.x - game.camera.x;
         const screenY = this.y - game.camera.y;
         
-        // Enemy body
-        ctx.fillStyle = this.isBoss ? '#8b0000' : '#ff4444';
-        ctx.fillRect(screenX - this.size / 2, screenY - this.size / 2, this.size, this.size);
-        
-        // Eyes
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(screenX - this.size / 4, screenY - this.size / 4, this.size / 6, this.size / 6);
-        ctx.fillRect(screenX + this.size / 12, screenY - this.size / 4, this.size / 6, this.size / 6);
+        if (this.isBoss) {
+            this.drawOgre(ctx, screenX, screenY);
+        } else {
+            this.drawGoblin(ctx, screenX, screenY);
+        }
         
         // Health bar
         if (this.health < this.maxHealth) {
@@ -333,6 +423,144 @@ class Enemy {
             ctx.fillStyle = '#0f0';
             ctx.fillRect(screenX - barWidth / 2, screenY - this.size / 2 - 10, barWidth * (this.health / this.maxHealth), barHeight);
         }
+    }
+
+    drawGoblin(ctx, screenX, screenY) {
+        const s = this.size;
+        
+        // Body color based on type
+        let bodyColor;
+        if (this.type === 'blue') bodyColor = '#4169e1';
+        else if (this.type === 'red') bodyColor = '#dc143c';
+        else if (this.type === 'white') bodyColor = '#e0e0e0';
+        
+        // Body
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(screenX - s / 3, screenY - s / 6, s * 2 / 3, s * 2 / 3);
+        
+        // Head
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY - s / 3, s / 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Ears
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.moveTo(screenX - s / 3, screenY - s / 3);
+        ctx.lineTo(screenX - s / 2, screenY - s / 2);
+        ctx.lineTo(screenX - s / 4, screenY - s / 2.5);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(screenX + s / 3, screenY - s / 3);
+        ctx.lineTo(screenX + s / 2, screenY - s / 2);
+        ctx.lineTo(screenX + s / 4, screenY - s / 2.5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Eyes
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(screenX - s / 6, screenY - s / 3, s / 8, s / 8);
+        ctx.fillRect(screenX + s / 16, screenY - s / 3, s / 8, s / 8);
+        
+        // Pupils
+        ctx.fillStyle = '#000';
+        ctx.fillRect(screenX - s / 8, screenY - s / 3.5, s / 16, s / 12);
+        ctx.fillRect(screenX + s / 12, screenY - s / 3.5, s / 16, s / 12);
+        
+        // Mouth
+        ctx.fillStyle = '#000';
+        ctx.fillRect(screenX - s / 8, screenY - s / 6, s / 4, s / 16);
+        
+        // Arms
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(screenX - s / 2, screenY, s / 6, s / 3);
+        ctx.fillRect(screenX + s / 3, screenY, s / 6, s / 3);
+        
+        // Legs
+        ctx.fillRect(screenX - s / 6, screenY + s / 3, s / 8, s / 4);
+        ctx.fillRect(screenX + s / 16, screenY + s / 3, s / 8, s / 4);
+    }
+
+    drawOgre(ctx, screenX, screenY) {
+        const s = this.size;
+        
+        // Body
+        ctx.fillStyle = '#556b2f';
+        ctx.fillRect(screenX - s / 2.5, screenY - s / 4, s * 4 / 5, s * 3 / 4);
+        
+        // Head
+        ctx.fillStyle = '#6b8e23';
+        ctx.beginPath();
+        ctx.arc(screenX, screenY - s / 2.5, s / 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Horns
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.moveTo(screenX - s / 3, screenY - s / 2);
+        ctx.lineTo(screenX - s / 2.5, screenY - s / 1.5);
+        ctx.lineTo(screenX - s / 4, screenY - s / 2.2);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(screenX + s / 3, screenY - s / 2);
+        ctx.lineTo(screenX + s / 2.5, screenY - s / 1.5);
+        ctx.lineTo(screenX + s / 4, screenY - s / 2.2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Eyes (angry)
+        ctx.fillStyle = '#ff0000';
+        ctx.beginPath();
+        ctx.arc(screenX - s / 6, screenY - s / 2.5, s / 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(screenX + s / 6, screenY - s / 2.5, s / 12, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Pupils
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(screenX - s / 6, screenY - s / 2.5, s / 20, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(screenX + s / 6, screenY - s / 2.5, s / 20, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Mouth (angry)
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(screenX, screenY - s / 4, s / 6, 0, Math.PI);
+        ctx.fill();
+        
+        // Tusks
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(screenX - s / 8, screenY - s / 4);
+        ctx.lineTo(screenX - s / 10, screenY - s / 8);
+        ctx.lineTo(screenX - s / 12, screenY - s / 4);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.moveTo(screenX + s / 8, screenY - s / 4);
+        ctx.lineTo(screenX + s / 10, screenY - s / 8);
+        ctx.lineTo(screenX + s / 12, screenY - s / 4);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Arms (thick)
+        ctx.fillStyle = '#556b2f';
+        ctx.fillRect(screenX - s / 1.8, screenY - s / 8, s / 5, s / 2);
+        ctx.fillRect(screenX + s / 2.2, screenY - s / 8, s / 5, s / 2);
+        
+        // Legs
+        ctx.fillRect(screenX - s / 4, screenY + s / 3, s / 6, s / 3);
+        ctx.fillRect(screenX + s / 12, screenY + s / 3, s / 6, s / 3);
     }
 }
 
@@ -356,7 +584,7 @@ function init() {
     createEnemies();
 
     // Create boss at top
-    game.boss = new Enemy(WORLD_WIDTH / 2, 150, true);
+    game.boss = new Enemy(WORLD_WIDTH / 2, 150, 'boss');
     game.enemies.push(game.boss);
 
     // Initialize hearts display
@@ -413,19 +641,26 @@ function createCollectibles() {
 }
 
 function createEnemies() {
-    // Regular enemies scattered throughout
-    for (let i = 0; i < 8; i++) {
+    // Create mix of goblin types
+    const types = ['blue', 'blue', 'blue', 'red', 'red', 'red', 'white', 'white'];
+    
+    for (let i = 0; i < types.length; i++) {
         const x = Math.random() * (WORLD_WIDTH - 200) + 100;
         const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
-        game.enemies.push(new Enemy(x, y, false));
+        game.enemies.push(new Enemy(x, y, types[i]));
     }
 }
 
 function attack() {
-    if (game.gameOver) return;
+    if (game.gameOver || game.player.attacking) return;
     
-    // Simple attack: damage enemies in front of player
-    const attackRange = 40;
+    // Start attack animation
+    game.player.attacking = true;
+    game.player.attackTime = 0;
+    
+    // Damage enemies in front of player based on facing direction
+    const attackRange = 45;
+    const attackArc = Math.PI / 3; // 60 degree arc
     
     for (let enemy of game.enemies) {
         if (!enemy.alive) continue;
@@ -435,7 +670,31 @@ function attack() {
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance < attackRange) {
-            enemy.takeDamage(1);
+            // Check if enemy is in the direction player is facing
+            let angleToEnemy = Math.atan2(dy, dx);
+            let facingAngle = 0;
+            
+            switch (game.player.facingDirection) {
+                case 'right':
+                    facingAngle = 0;
+                    break;
+                case 'down':
+                    facingAngle = Math.PI / 2;
+                    break;
+                case 'left':
+                    facingAngle = Math.PI;
+                    break;
+                case 'up':
+                    facingAngle = -Math.PI / 2;
+                    break;
+            }
+            
+            let angleDiff = Math.abs(angleToEnemy - facingAngle);
+            if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+            
+            if (angleDiff < attackArc) {
+                enemy.takeDamage(game.player.swordDamage);
+            }
         }
     }
 }
@@ -493,7 +752,7 @@ function restart() {
     createObstacles();
     createCollectibles();
     createEnemies();
-    game.boss = new Enemy(WORLD_WIDTH / 2, 150, true);
+    game.boss = new Enemy(WORLD_WIDTH / 2, 150, 'boss');
     game.enemies.push(game.boss);
     
     updateHearts();
