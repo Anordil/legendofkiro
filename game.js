@@ -45,7 +45,19 @@ class Player {
         this.attackTime = 0;
         this.attackDuration = 15; // frames
         this.facingDirection = 'up'; // up, down, left, right
-        this.swordDamage = 2;
+        
+        // Weapon system
+        this.weapon = 'sword'; // 'sword', 'bow', 'twohanded'
+        this.weaponDamage = 2;
+        this.weaponRange = 45;
+        this.attackCooldown = 15; // frames between attacks (4 attacks per second at 60fps)
+        this.lastAttackTime = 0;
+        this.arrows = [];
+        
+        // Potion effects
+        this.activePotion = null; // 'red', 'green', 'yellow', 'blue'
+        this.potionTimer = 0;
+        this.potionDuration = 600; // 10 seconds at 60fps
     }
 
     update() {
@@ -58,15 +70,45 @@ class Player {
             }
         }
 
+        // Update attack cooldown
+        if (this.lastAttackTime > 0) {
+            this.lastAttackTime--;
+        }
+
+        // Update potion effects
+        if (this.activePotion) {
+            this.potionTimer--;
+            if (this.potionTimer <= 0) {
+                this.activePotion = null;
+                this.updateWeaponStats();
+            }
+        }
+
+        // Update arrows
+        for (let i = this.arrows.length - 1; i >= 0; i--) {
+            const arrow = this.arrows[i];
+            arrow.x += arrow.vx;
+            arrow.y += arrow.vy;
+            arrow.distance += Math.sqrt(arrow.vx * arrow.vx + arrow.vy * arrow.vy);
+            
+            // Remove arrows that are out of bounds or traveled too far
+            if (arrow.distance > 300 || arrow.x < 0 || arrow.x > WORLD_WIDTH || arrow.y < 0 || arrow.y > WORLD_HEIGHT) {
+                this.arrows.splice(i, 1);
+            }
+        }
+
+        // Get current speed (affected by yellow potion)
+        const currentSpeed = this.activePotion === 'yellow' ? PLAYER_SPEED * 2 : PLAYER_SPEED;
+
         // Movement with no diagonal
         let moving = false;
         
         if (game.keys['ArrowUp'] || game.keys['w']) {
-            this.vy = -PLAYER_SPEED;
+            this.vy = -currentSpeed;
             this.facingDirection = 'up';
             moving = true;
         } else if (game.keys['ArrowDown'] || game.keys['s']) {
-            this.vy = PLAYER_SPEED;
+            this.vy = currentSpeed;
             this.facingDirection = 'down';
             moving = true;
         } else {
@@ -75,10 +117,10 @@ class Player {
 
         if (!moving) {
             if (game.keys['ArrowLeft'] || game.keys['a']) {
-                this.vx = -PLAYER_SPEED;
+                this.vx = -currentSpeed;
                 this.facingDirection = 'left';
             } else if (game.keys['ArrowRight'] || game.keys['d']) {
-                this.vx = PLAYER_SPEED;
+                this.vx = currentSpeed;
                 this.facingDirection = 'right';
             }
         }
@@ -117,6 +159,48 @@ class Player {
         }
     }
 
+    updateWeaponStats() {
+        // Base weapon stats
+        if (this.weapon === 'sword') {
+            this.weaponDamage = 2;
+            this.weaponRange = 45;
+            this.attackCooldown = 15; // 4 attacks per second
+        } else if (this.weapon === 'bow') {
+            this.weaponDamage = 1;
+            this.weaponRange = 300;
+            this.attackCooldown = 15; // 4 arrows per second
+        } else if (this.weapon === 'twohanded') {
+            this.weaponDamage = 6;
+            this.weaponRange = 60;
+            this.attackCooldown = 30; // 2 attacks per second
+        }
+
+        // Apply potion effects
+        if (this.activePotion === 'red') {
+            this.weaponDamage *= 2;
+        } else if (this.activePotion === 'green') {
+            this.attackCooldown = Math.floor(this.attackCooldown / 2);
+        }
+    }
+
+    equipWeapon(weaponType) {
+        this.weapon = weaponType;
+        this.updateWeaponStats();
+    }
+
+    drinkPotion(potionType) {
+        this.activePotion = potionType;
+        this.potionTimer = this.potionDuration;
+        
+        // Blue potion gives invulnerability
+        if (potionType === 'blue') {
+            this.invulnerable = true;
+            this.invulnerableTime = this.potionDuration;
+        }
+        
+        this.updateWeaponStats();
+    }
+
     checkCollision(x, y) {
         for (let obstacle of game.obstacles) {
             if (this.rectCollision(
@@ -134,6 +218,9 @@ class Player {
     }
 
     takeDamage(amount) {
+        // Blue potion makes you immune to damage
+        if (this.activePotion === 'blue') return;
+        
         if (!this.invulnerable) {
             this.health -= amount;
             this.invulnerable = true;
@@ -155,6 +242,11 @@ class Player {
         const screenX = this.x - game.camera.x;
         const screenY = this.y - game.camera.y;
         
+        // Draw potion aura
+        if (this.activePotion) {
+            this.drawAura(ctx, screenX, screenY);
+        }
+        
         // Flash when invulnerable
         if (!this.invulnerable || Math.floor(this.invulnerableTime / 5) % 2 === 0) {
             ctx.drawImage(
@@ -166,8 +258,83 @@ class Player {
             );
         }
 
-        // Draw sword
-        this.drawSword(ctx, screenX, screenY);
+        // Draw weapon
+        if (this.weapon === 'bow') {
+            this.drawBow(ctx, screenX, screenY);
+        } else {
+            this.drawSword(ctx, screenX, screenY);
+        }
+
+        // Draw arrows
+        for (let arrow of this.arrows) {
+            const arrowScreenX = arrow.x - game.camera.x;
+            const arrowScreenY = arrow.y - game.camera.y;
+            
+            ctx.save();
+            ctx.translate(arrowScreenX, arrowScreenY);
+            ctx.rotate(Math.atan2(arrow.vy, arrow.vx));
+            
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(-8, -2, 8, 4);
+            ctx.fillStyle = '#c0c0c0';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(5, -3);
+            ctx.lineTo(5, 3);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+    }
+
+    drawAura(ctx, screenX, screenY) {
+        let auraColor;
+        if (this.activePotion === 'red') auraColor = 'rgba(255, 0, 0, 0.3)';
+        else if (this.activePotion === 'green') auraColor = 'rgba(0, 255, 0, 0.3)';
+        else if (this.activePotion === 'yellow') auraColor = 'rgba(255, 255, 0, 0.3)';
+        else if (this.activePotion === 'blue') auraColor = 'rgba(0, 100, 255, 0.3)';
+        
+        const pulseSize = 5 + Math.sin(Date.now() / 100) * 3;
+        
+        ctx.fillStyle = auraColor;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, this.width / 2 + pulseSize, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    drawBow(ctx, screenX, screenY) {
+        if (!this.attacking) return;
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+
+        let angle = 0;
+        switch (this.facingDirection) {
+            case 'up': angle = -Math.PI / 2; break;
+            case 'down': angle = Math.PI / 2; break;
+            case 'left': angle = Math.PI; break;
+            case 'right': angle = 0; break;
+        }
+        
+        ctx.rotate(angle);
+
+        // Bow
+        ctx.strokeStyle = '#8b4513';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.width / 2 + 10, 0, 12, -Math.PI / 2, Math.PI / 2);
+        ctx.stroke();
+
+        // String
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.width / 2 + 10, -12);
+        ctx.lineTo(this.width / 2 + 10, 12);
+        ctx.stroke();
+
+        ctx.restore();
     }
 
     drawSword(ctx, screenX, screenY) {
@@ -181,8 +348,8 @@ class Player {
 
         // Rotate based on facing direction
         let baseAngle = 0;
-        let swordLength = 25;
-        let swordWidth = 6;
+        let swordLength = this.weapon === 'twohanded' ? 35 : 25;
+        let swordWidth = this.weapon === 'twohanded' ? 8 : 6;
 
         switch (this.facingDirection) {
             case 'up':
@@ -204,7 +371,7 @@ class Player {
         ctx.rotate(currentAngle);
 
         // Draw sword blade
-        ctx.fillStyle = '#c0c0c0';
+        ctx.fillStyle = this.weapon === 'twohanded' ? '#a0a0a0' : '#c0c0c0';
         ctx.fillRect(this.width / 2, -swordWidth / 2, swordLength, swordWidth);
 
         // Draw sword tip
@@ -217,11 +384,13 @@ class Player {
 
         // Draw sword hilt
         ctx.fillStyle = '#8b4513';
-        ctx.fillRect(this.width / 2 - 5, -swordWidth / 2, 8, swordWidth);
+        const hiltLength = this.weapon === 'twohanded' ? 12 : 8;
+        ctx.fillRect(this.width / 2 - 5, -swordWidth / 2, hiltLength, swordWidth);
 
         // Draw sword guard
         ctx.fillStyle = '#ffd700';
-        ctx.fillRect(this.width / 2 - 2, -swordWidth / 2 - 3, 3, swordWidth + 6);
+        const guardSize = this.weapon === 'twohanded' ? 4 : 3;
+        ctx.fillRect(this.width / 2 - 2, -swordWidth / 2 - guardSize, guardSize, swordWidth + guardSize * 2);
 
         ctx.restore();
     }
@@ -276,7 +445,7 @@ class Collectible {
         this.x = x;
         this.y = y;
         this.size = COLLECTIBLE_SIZE;
-        this.type = type;
+        this.type = type; // 'heart', 'bow', 'twohanded', 'red_potion', 'green_potion', 'yellow_potion', 'blue_potion'
         this.collected = false;
     }
 
@@ -300,7 +469,54 @@ class Collectible {
             ctx.beginPath();
             ctx.arc(screenX + this.size / 6, screenY - this.size / 6, this.size / 3, 0, Math.PI * 2);
             ctx.fill();
+        } else if (this.type === 'bow') {
+            // Draw bow weapon
+            ctx.strokeStyle = '#8b4513';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, this.size / 2, -Math.PI / 2, Math.PI / 2);
+            ctx.stroke();
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(screenX, screenY - this.size / 2);
+            ctx.lineTo(screenX, screenY + this.size / 2);
+            ctx.stroke();
+        } else if (this.type === 'twohanded') {
+            // Draw two-handed sword
+            ctx.fillStyle = '#a0a0a0';
+            ctx.fillRect(screenX - 3, screenY - this.size / 2, 6, this.size);
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(screenX - 4, screenY + this.size / 3, 8, this.size / 6);
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(screenX - 5, screenY + this.size / 4, 10, 3);
+        } else if (this.type.includes('potion')) {
+            this.drawPotion(ctx, screenX, screenY);
         }
+    }
+
+    drawPotion(ctx, screenX, screenY) {
+        let color;
+        if (this.type === 'red_potion') color = '#ff0000';
+        else if (this.type === 'green_potion') color = '#00ff00';
+        else if (this.type === 'yellow_potion') color = '#ffff00';
+        else if (this.type === 'blue_potion') color = '#0066ff';
+        
+        // Bottle body
+        ctx.fillStyle = color;
+        ctx.fillRect(screenX - this.size / 4, screenY - this.size / 4, this.size / 2, this.size / 2);
+        
+        // Bottle neck
+        ctx.fillStyle = color;
+        ctx.fillRect(screenX - this.size / 6, screenY - this.size / 2, this.size / 3, this.size / 4);
+        
+        // Cork
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(screenX - this.size / 8, screenY - this.size / 1.8, this.size / 4, this.size / 8);
+        
+        // Shine effect
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.fillRect(screenX - this.size / 6, screenY - this.size / 6, this.size / 8, this.size / 4);
     }
 
     checkCollection(player) {
@@ -312,8 +528,21 @@ class Collectible {
         
         if (distance < (player.width / 2 + this.size / 2)) {
             this.collected = true;
+            
             if (this.type === 'heart') {
                 player.heal(1);
+            } else if (this.type === 'bow') {
+                player.equipWeapon('bow');
+            } else if (this.type === 'twohanded') {
+                player.equipWeapon('twohanded');
+            } else if (this.type === 'red_potion') {
+                player.drinkPotion('red');
+            } else if (this.type === 'green_potion') {
+                player.drinkPotion('green');
+            } else if (this.type === 'yellow_potion') {
+                player.drinkPotion('yellow');
+            } else if (this.type === 'blue_potion') {
+                player.drinkPotion('blue');
             }
         }
     }
@@ -633,10 +862,27 @@ function createObstacles() {
 }
 
 function createCollectibles() {
-    for (let i = 0; i < 15; i++) {
+    // Hearts
+    for (let i = 0; i < 10; i++) {
         const x = Math.random() * (WORLD_WIDTH - 200) + 100;
         const y = Math.random() * (WORLD_HEIGHT - 400) + 200;
         game.collectibles.push(new Collectible(x, y, 'heart'));
+    }
+    
+    // Weapons
+    const weapons = ['bow', 'twohanded'];
+    for (let weapon of weapons) {
+        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
+        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
+        game.collectibles.push(new Collectible(x, y, weapon));
+    }
+    
+    // Potions
+    const potions = ['red_potion', 'green_potion', 'yellow_potion', 'blue_potion'];
+    for (let potion of potions) {
+        const x = Math.random() * (WORLD_WIDTH - 200) + 100;
+        const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
+        game.collectibles.push(new Collectible(x, y, potion));
     }
 }
 
@@ -652,48 +898,98 @@ function createEnemies() {
 }
 
 function attack() {
-    if (game.gameOver || game.player.attacking) return;
+    if (game.gameOver || game.player.lastAttackTime > 0) return;
     
-    // Start attack animation
-    game.player.attacking = true;
-    game.player.attackTime = 0;
+    // Set attack cooldown
+    game.player.lastAttackTime = game.player.attackCooldown;
     
-    // Damage enemies in front of player based on facing direction
-    const attackRange = 45;
-    const attackArc = Math.PI / 3; // 60 degree arc
-    
-    for (let enemy of game.enemies) {
-        if (!enemy.alive) continue;
+    if (game.player.weapon === 'bow') {
+        // Shoot arrow
+        let vx = 0, vy = 0;
+        const arrowSpeed = 8;
         
-        const dx = enemy.x - game.player.x;
-        const dy = enemy.y - game.player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        switch (game.player.facingDirection) {
+            case 'up': vy = -arrowSpeed; break;
+            case 'down': vy = arrowSpeed; break;
+            case 'left': vx = -arrowSpeed; break;
+            case 'right': vx = arrowSpeed; break;
+        }
         
-        if (distance < attackRange) {
-            // Check if enemy is in the direction player is facing
-            let angleToEnemy = Math.atan2(dy, dx);
-            let facingAngle = 0;
+        game.player.arrows.push({
+            x: game.player.x,
+            y: game.player.y,
+            vx: vx,
+            vy: vy,
+            damage: game.player.weaponDamage,
+            distance: 0
+        });
+        
+        game.player.attacking = true;
+        game.player.attackTime = 0;
+        game.player.attackDuration = 10;
+    } else {
+        // Melee attack
+        game.player.attacking = true;
+        game.player.attackTime = 0;
+        game.player.attackDuration = 15;
+        
+        const attackRange = game.player.weaponRange;
+        const attackArc = Math.PI / 3; // 60 degree arc
+        
+        for (let enemy of game.enemies) {
+            if (!enemy.alive) continue;
             
-            switch (game.player.facingDirection) {
-                case 'right':
-                    facingAngle = 0;
-                    break;
-                case 'down':
-                    facingAngle = Math.PI / 2;
-                    break;
-                case 'left':
-                    facingAngle = Math.PI;
-                    break;
-                case 'up':
-                    facingAngle = -Math.PI / 2;
-                    break;
+            const dx = enemy.x - game.player.x;
+            const dy = enemy.y - game.player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < attackRange) {
+                // Check if enemy is in the direction player is facing
+                let angleToEnemy = Math.atan2(dy, dx);
+                let facingAngle = 0;
+                
+                switch (game.player.facingDirection) {
+                    case 'right':
+                        facingAngle = 0;
+                        break;
+                    case 'down':
+                        facingAngle = Math.PI / 2;
+                        break;
+                    case 'left':
+                        facingAngle = Math.PI;
+                        break;
+                    case 'up':
+                        facingAngle = -Math.PI / 2;
+                        break;
+                }
+                
+                let angleDiff = Math.abs(angleToEnemy - facingAngle);
+                if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                
+                if (angleDiff < attackArc) {
+                    enemy.takeDamage(game.player.weaponDamage);
+                }
             }
+        }
+    }
+}
+
+// Check arrow collisions with enemies
+function updateArrows() {
+    for (let i = game.player.arrows.length - 1; i >= 0; i--) {
+        const arrow = game.player.arrows[i];
+        
+        for (let enemy of game.enemies) {
+            if (!enemy.alive) continue;
             
-            let angleDiff = Math.abs(angleToEnemy - facingAngle);
-            if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+            const dx = enemy.x - arrow.x;
+            const dy = enemy.y - arrow.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
             
-            if (angleDiff < attackArc) {
-                enemy.takeDamage(game.player.swordDamage);
+            if (distance < enemy.size / 2) {
+                enemy.takeDamage(arrow.damage);
+                game.player.arrows.splice(i, 1);
+                break;
             }
         }
     }
@@ -772,6 +1068,7 @@ function gameLoop() {
             collectible.checkCollection(game.player);
         }
         
+        updateArrows();
         updateCamera();
     }
 
