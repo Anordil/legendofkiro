@@ -594,12 +594,13 @@ class Player {
 
 // Obstacle class
 class Obstacle {
-    constructor(x, y, width, height, type = 'tree') {
+    constructor(x, y, width, height, type = 'tree', blocksProjectiles = true) {
         this.x = x;
         this.y = y;
         this.width = width;
         this.height = height;
         this.type = type;
+        this.blocksProjectiles = blocksProjectiles;
     }
 
     draw(ctx) {
@@ -631,6 +632,56 @@ class Obstacle {
             ctx.lineTo(screenX + this.width / 2 + 10, screenY + 15);
             ctx.closePath();
             ctx.fill();
+        } else if (this.type === 'water') {
+            // Water body
+            ctx.fillStyle = '#4682b4';
+            ctx.fillRect(screenX, screenY, this.width, this.height);
+            
+            // Water ripples
+            ctx.strokeStyle = '#5a9fd4';
+            ctx.lineWidth = 2;
+            const time = Date.now() / 500;
+            for (let i = 0; i < 3; i++) {
+                ctx.beginPath();
+                ctx.arc(screenX + this.width / 4 + (i * this.width / 4), 
+                       screenY + this.height / 2 + Math.sin(time + i) * 3, 
+                       8, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        } else if (this.type === 'barricade') {
+            // Wooden barricade
+            ctx.fillStyle = '#8b4513';
+            const planks = 4;
+            for (let i = 0; i < planks; i++) {
+                const plankY = screenY + (i * this.height / planks);
+                ctx.fillRect(screenX, plankY, this.width, this.height / planks - 2);
+            }
+            
+            // Support posts
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(screenX, screenY, 5, this.height);
+            ctx.fillRect(screenX + this.width - 5, screenY, 5, this.height);
+        } else if (this.type === 'tree_cluster') {
+            // Dense forest cluster - multiple overlapping trees using same sprite as single trees
+            const numTrees = Math.floor((this.width * this.height) / 800); // Density based on area
+            const treeSize = 25;
+            
+            for (let i = 0; i < numTrees; i++) {
+                const offsetX = (i % 3) * (this.width / 3);
+                const offsetY = Math.floor(i / 3) * (this.height / 3);
+                const treeX = screenX + offsetX + (Math.random() * 10 - 5);
+                const treeY = screenY + offsetY + (Math.random() * 10 - 5);
+                
+                // Tree trunk (same as single tree)
+                ctx.fillStyle = '#4a2511';
+                ctx.fillRect(treeX + treeSize / 3 - treeSize / 2, treeY + treeSize / 2 - treeSize / 2, treeSize / 3, treeSize / 2);
+                
+                // Tree top (same as single tree)
+                ctx.fillStyle = '#1a4d1a';
+                ctx.beginPath();
+                ctx.arc(treeX, treeY, treeSize / 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
     }
 }
@@ -950,6 +1001,21 @@ class Enemy {
                     continue;
                 }
                 
+                // Check collision with obstacles that block projectiles
+                let hitObstacle = false;
+                for (let obstacle of game.obstacles) {
+                    if (!obstacle.blocksProjectiles) continue;
+                    
+                    if (bolt.x > obstacle.x && bolt.x < obstacle.x + obstacle.width &&
+                        bolt.y > obstacle.y && bolt.y < obstacle.y + obstacle.height) {
+                        this.bolts.splice(i, 1);
+                        hitObstacle = true;
+                        break;
+                    }
+                }
+                
+                if (hitObstacle) continue;
+                
                 // Remove bolts that traveled too far or out of bounds
                 if (bolt.distance > 400 || bolt.x < 0 || bolt.x > WORLD_WIDTH || bolt.y < 0 || bolt.y > WORLD_HEIGHT) {
                     this.bolts.splice(i, 1);
@@ -1068,9 +1134,7 @@ class Enemy {
     }
 
     drawClub(ctx, screenX, screenY) {
-        if (!this.attacking) return;
-
-        const progress = this.attackTime / this.attackDuration;
+        const progress = this.attacking ? this.attackTime / this.attackDuration : 0;
         const swingAngle = progress * Math.PI;
 
         ctx.save();
@@ -1081,7 +1145,11 @@ class Enemy {
         const dy = game.player.y - this.y;
         const baseAngle = Math.atan2(dy, dx);
 
-        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        // Apply swing animation when attacking, otherwise show at rest
+        const currentAngle = this.attacking 
+            ? baseAngle + (swingAngle - Math.PI / 2) * 0.8
+            : baseAngle - Math.PI / 6; // Resting position
+
         ctx.rotate(currentAngle);
 
         const clubLength = 18;
@@ -1101,9 +1169,7 @@ class Enemy {
     }
 
     drawBossClub(ctx, screenX, screenY) {
-        if (!this.attacking) return;
-
-        const progress = this.attackTime / this.attackDuration;
+        const progress = this.attacking ? this.attackTime / this.attackDuration : 0;
         const swingAngle = progress * Math.PI;
 
         ctx.save();
@@ -1113,7 +1179,11 @@ class Enemy {
         const dy = game.player.y - this.y;
         const baseAngle = Math.atan2(dy, dx);
 
-        const currentAngle = baseAngle + (swingAngle - Math.PI / 2) * 0.8;
+        // Apply swing animation when attacking, otherwise show at rest
+        const currentAngle = this.attacking 
+            ? baseAngle + (swingAngle - Math.PI / 2) * 0.8
+            : baseAngle - Math.PI / 6; // Resting position
+
         ctx.rotate(currentAngle);
 
         const clubLength = 35;
@@ -1443,22 +1513,49 @@ function init() {
 function createObstacles() {
     // Left and right walls
     for (let y = 0; y < WORLD_HEIGHT; y += 60) {
-        game.obstacles.push(new Obstacle(0, y, 40, 50, 'tree'));
-        game.obstacles.push(new Obstacle(WORLD_WIDTH - 40, y, 40, 50, 'tree'));
+        game.obstacles.push(new Obstacle(0, y, 40, 50, 'tree', true));
+        game.obstacles.push(new Obstacle(WORLD_WIDTH - 40, y, 40, 50, 'tree', true));
     }
 
     // Top and bottom walls
     for (let x = 40; x < WORLD_WIDTH - 40; x += 60) {
-        game.obstacles.push(new Obstacle(x, 0, 50, 40, 'mountain'));
-        game.obstacles.push(new Obstacle(x, WORLD_HEIGHT - 40, 50, 40, 'mountain'));
+        game.obstacles.push(new Obstacle(x, 0, 50, 40, 'mountain', true));
+        game.obstacles.push(new Obstacle(x, WORLD_HEIGHT - 40, 50, 40, 'mountain', true));
     }
 
-    // Random obstacles throughout (more for bigger world)
-    for (let i = 0; i < 60; i++) {
+    // Tree clusters (blocks everything)
+    for (let i = 0; i < 8; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 500) + 250;
+        const y = Math.random() * (WORLD_HEIGHT - 1000) + 500;
+        const width = 80 + Math.random() * 60;
+        const height = 80 + Math.random() * 60;
+        game.obstacles.push(new Obstacle(x, y, width, height, 'tree_cluster', true));
+    }
+
+    // Water bodies (blocks movement, not projectiles)
+    for (let i = 0; i < 6; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 500) + 250;
+        const y = Math.random() * (WORLD_HEIGHT - 1000) + 500;
+        const width = 60 + Math.random() * 80;
+        const height = 60 + Math.random() * 80;
+        game.obstacles.push(new Obstacle(x, y, width, height, 'water', false));
+    }
+
+    // Barricades (blocks movement, not projectiles)
+    for (let i = 0; i < 10; i++) {
+        const x = Math.random() * (WORLD_WIDTH - 500) + 250;
+        const y = Math.random() * (WORLD_HEIGHT - 1000) + 500;
+        const width = 40 + Math.random() * 30;
+        const height = 15;
+        game.obstacles.push(new Obstacle(x, y, width, height, 'barricade', false));
+    }
+
+    // Random single obstacles throughout
+    for (let i = 0; i < 30; i++) {
         const x = Math.random() * (WORLD_WIDTH - 400) + 200;
         const y = Math.random() * (WORLD_HEIGHT - 800) + 400;
         const type = Math.random() > 0.5 ? 'tree' : 'mountain';
-        game.obstacles.push(new Obstacle(x, y, 40, 40, type));
+        game.obstacles.push(new Obstacle(x, y, 40, 40, type, true));
     }
 }
 
@@ -1592,11 +1689,13 @@ function attack() {
     }
 }
 
-// Check arrow collisions with enemies
+// Check arrow collisions with enemies and obstacles
 function updateArrows() {
     for (let i = game.player.arrows.length - 1; i >= 0; i--) {
         const arrow = game.player.arrows[i];
+        let hitSomething = false;
         
+        // Check collision with enemies
         for (let enemy of game.enemies) {
             if (!enemy.alive) continue;
             
@@ -1606,6 +1705,20 @@ function updateArrows() {
             
             if (distance < enemy.size / 2) {
                 enemy.takeDamage(arrow.damage);
+                game.player.arrows.splice(i, 1);
+                hitSomething = true;
+                break;
+            }
+        }
+        
+        if (hitSomething) continue;
+        
+        // Check collision with obstacles that block projectiles
+        for (let obstacle of game.obstacles) {
+            if (!obstacle.blocksProjectiles) continue;
+            
+            if (arrow.x > obstacle.x && arrow.x < obstacle.x + obstacle.width &&
+                arrow.y > obstacle.y && arrow.y < obstacle.y + obstacle.height) {
                 game.player.arrows.splice(i, 1);
                 break;
             }
@@ -1629,7 +1742,18 @@ function updateHearts() {
     
     for (let i = 0; i < game.player.maxHealth; i++) {
         const heart = document.createElement('div');
-        heart.className = i < game.player.health ? 'heart' : 'heart empty';
+        
+        if (i < Math.floor(game.player.health)) {
+            // Full heart
+            heart.className = 'heart';
+        } else if (i < game.player.health) {
+            // Half heart
+            heart.className = 'heart half';
+        } else {
+            // Empty heart
+            heart.className = 'heart empty';
+        }
+        
         heartsContainer.appendChild(heart);
     }
 }

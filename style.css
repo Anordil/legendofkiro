@@ -85,6 +85,18 @@ body {
     background: #333;
 }
 
+.heart.half {
+    background: linear-gradient(to right, red 50%, #333 50%);
+}
+
+.heart.half::before {
+    background: red;
+}
+
+.heart.half::after {
+    background: linear-gradient(to bottom, red 50%, #333 50%);
+}
+
 #game-over {
     position: absolute;
     top: 50%;
